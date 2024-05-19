@@ -107,7 +107,7 @@ def _improve_answer_span(doc_tokens, input_start, input_end, tokenizer,
     return (input_start, input_end)
 
 
-def process_entry(version_2_with_negative, is_training, entry_):
+def create_squad_example(version_2_with_negative, is_training, entry_):
 
     idx, entry = entry_
     def is_whitespace(c):
@@ -391,7 +391,7 @@ def squad2features(args):
     shared_cnt = mp.Value('i', 0)
 
     # arguments that don't change for various processes can be included in a partial function
-    process_entry_partial = functools.partial(process_entry, version_2_with_negative, is_training)
+    create_squad_example_partial = functools.partial(create_squad_example, version_2_with_negative, is_training)
     # mechanism to give each process an id starting from 0 to nproc. We put numbers from 0-9 on a queue.
     # Worker processes read from this queue and use each number as their id
     q = Queue(nproc)
@@ -400,7 +400,7 @@ def squad2features(args):
     with Pool(nproc, initializer=worker_init, initargs=(q, shared_cnt)) as pool:
         with open(input_file, "r", encoding='utf-8') as reader:
             input_data = json.load(reader)["data"]
-            for example, pid in pool.imap(process_entry_partial, stream(input_data)):
+            for example, pid in pool.imap(create_squad_example_partial, stream(input_data)):
                 if example is None:
                     continue
                 else:

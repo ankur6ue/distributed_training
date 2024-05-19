@@ -122,7 +122,7 @@ def fsdp_main(local_rank, world_size, args):
     dllogger.metadata("F1", {"unit": None})
 
     print("device: {} n_gpu: {}, distributed training: {}, 16-bits training: {}".format(
-        device, n_gpu, bool(args.local_rank != -1), args.fp16))
+        device, n_gpu, bool(args.world_size > 1), args.fp16))
 
     dllogger.log(step="PARAMETER", data={"Config": [str(args)]})
 
@@ -185,10 +185,15 @@ def fsdp_main(local_rank, world_size, args):
         else:
             return
 
+        # original NVIDIA code calculates the num_train_optimization_steps using the number of squadexamples, which
+        # is incorrect I think, because the dataloader is created using train_features, which can be different from the
+        # number of squad examples
+        # num_train_optimization_steps = int(
+        #    len(train_examples) / args.train_batch_size / args.gradient_accumulation_steps) * args.num_train_epochs
         num_train_optimization_steps = int(
-            len(train_examples) / args.train_batch_size / args.gradient_accumulation_steps) * args.num_train_epochs
-        if args.local_rank != -1:
-            num_train_optimization_steps = num_train_optimization_steps // torch.distributed.get_world_size()
+            len(train_features) / args.train_batch_size / args.gradient_accumulation_steps) * args.num_train_epochs
+
+        num_train_optimization_steps = num_train_optimization_steps // torch.distributed.get_world_size()
 
         # Prepare model
         config = modeling.BertConfig.from_json_file(args.config_file)
@@ -233,7 +238,6 @@ def fsdp_main(local_rank, world_size, args):
             model = DDP(model, find_unused_parameters=True)
 
         global_step = 0
-
 
         dllogger.log(step="PARAMETER", data={"train_start": True})
         dllogger.log(step="PARAMETER", data={"training_samples": len(train_examples)})
@@ -437,10 +441,10 @@ if __name__ == "__main__":
     parser.add_argument("--do_lower_case",
                         action='store_true',
                         help="Whether to lower case the input text. True for uncased models, False for cased models.")
-    parser.add_argument("--local_rank",
+    parser.add_argument("--world_size",
                         type=int,
-                        default=os.getenv('LOCAL_RANK', -1),
-                        help="local_rank for distributed training on gpus")
+                        default=1,
+                        help="world_size (usually number of GPUs) for distributed training on gpus")
     parser.add_argument('--fp16',
                         default=False,
                         action='store_true',
@@ -515,13 +519,11 @@ if __name__ == "__main__":
                         help="model type")
     parser.add_argument("--use_tensorboard",
                         default=False,
-                        help="whetehr to log or not")
+                        help="whether to log or not")
 
     cfg = parser.parse_args()
-    cfg.fp16 = cfg.fp16 or cfg.amp
-    WORLD_SIZE = 2
     mp.spawn(fsdp_main,
-             args=(WORLD_SIZE, cfg),
-             nprocs=WORLD_SIZE,
+             args=(cfg.world_size, cfg),
+             nprocs=cfg.world_size,
              join=True)
     dllogger.flush()
