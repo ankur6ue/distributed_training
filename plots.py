@@ -17,7 +17,7 @@ df_2 = pd.read_csv(os.path.join('results/bert_small', '20-03-07.csv'), names=col
 # df_4 = pd.read_csv (os.path.join('logs_test/finetune/gpt2', 'b_3_ac.csv'), names=colnames, header=None).set_index('TIME')
 
 colnames=['TIME', 'b=24 (ddp)']
-df_5 = pd.read_csv (os.path.join('results/bert_small', 'ddp_f16_no_apex.csv'), names=colnames, header=None).set_index('TIME')
+df_5 = pd.read_csv (os.path.join('results/bert_small', '12-56-42.csv'), names=colnames, header=None).set_index('TIME')
 
 df = [df_2, df_5]
 
