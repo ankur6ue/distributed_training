@@ -87,9 +87,10 @@ As can be seen, the processing time decreases almost linearly until number of CP
  The image above shows this new workflow [do_merge = False]. However, a bit to my disappointment, the execution time of this workflow was almost exactly the same as the first option [on my 20 core Ubuntu workstation, there may be improvements on larger machines]
  
  ## 2. Running fine-tuning on the Squad dataset
+ 
 I have removed all references to NVIDIA apex.amp module and replaced it with the equivalent Pytorch's code. As stated in the [apex repo](https://github.com/NVIDIA/apex), apex is now deprecated and all apex related changes have been migrated to Pytorch. I have also significantly simplified the code by removing feature generation and evaluation code in separate files.
-![](images/performance_comparison.png)
-You can run Distributed Data Parallel (DDP) training using the features created in the pre-training step with this command:
+
+You can run Distributed Data Parallel (DDP) training using the features created in the data prep step with this command:
 ```python
 python bert_finetuning_squad_no_amp.py
 --bert_model=bert-base-uncased
@@ -110,12 +111,13 @@ python bert_finetuning_squad_no_amp.py
 --world_size=2
 --gradient_accumulation_steps=1
 ```
- 
+If the SquadExample and InputFeatures pickles created in the data prep steps are not found, the program will exit. 
+
 The mixed precision and Distributed Data Parallel related code changes are the following:
 1. Wrap the BERT Model in DDP, if world_size (typically number of GPUs on your system) > 1:
      ```python
-            if world_size > 1:
-                model = DDP(model, find_unused_parameters=True)
+    if world_size > 1:
+        model = DDP(model, find_unused_parameters=True)
     ```
 2. Initialize Pytorch GradScaler it mixed precision is enabled:
     ```python
@@ -123,7 +125,7 @@ The mixed precision and Distributed Data Parallel related code changes are the f
     if args.fp16:
         scaler = GradScaler()
     ```
-   Gradient Scaling is required during mixed precision training, because when expressed in fp16, gradients may underflow to 0. To prevent underflow, gradient scaling multiplies the network’s loss(es) by a scale factor and invokes a backward pass on the scaled loss(es). Gradients flowing backward through the network are then scaled by the same factor. Because gradient values have a larger magnitude, so they don’t flush to zero. The scale factor is adjusted based to take advantage of full dynamic range of fp16.
+  Gradient Scaling is required during mixed precision training, because when expressed in fp16, gradients may underflow to 0. To prevent underflow, gradient scaling multiplies the network’s loss(es) by a scale factor and invokes a backward pass on the scaled loss(es). Gradients flowing backward through the network are then scaled by the same factor. Because gradient values have a larger magnitude, they don’t flush to zero. The scale factor is adjusted when the GradScalar is stepped to take advantage of full dynamic range of fp16.
 
 3. Create a DistributedSampler if world_size > 1
     ```python
