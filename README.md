@@ -62,7 +62,16 @@ The consolidated list of SquadExamples is further processed in parallel to gener
 ```python
 create_squad_example_partial = functools.partial(create_squad_example, version_2_with_negative, is_training)
 ```
-* If you need a variable whose state must be synced across processes [eg., a process-pool wide count], you can use `mp.Value`. Getting/setting these variables must be done under locks. I'll mention an example of this approach later.
+* If you need a variable whose state must be synced across processes [eg., a process-pool wide count], you can use `mp.Value`. Getting/setting these variables must be done under locks. I use this technique to increment the feature count, which must be modified under a lock because its state is shared by all worker processes involved in calculating features
+
+```python
+global shared_cnt
+local_val = 0
+with shared_cnt.get_lock():
+    local_val = shared_cnt.value
+    shared_cnt.value += 1
+
+```
 
  ![](images/optimization1.png)
  
@@ -79,6 +88,28 @@ As can be seen, the processing time decreases almost linearly until number of CP
  
  ## 2. Running fine-tuning on the Squad dataset
 I have removed all references to NVIDIA apex.amp module and replaced it with the equivalent Pytorch's code. As stated in the [apex repo](https://github.com/NVIDIA/apex), apex is now deprecated and all apex related changes have been migrated to Pytorch. I have also significantly simplified the code by removing feature generation and evaluation code in separate files.
+![](images/performance_comparison.png)
+You can run Distributed Data Parallel (DDP) training using the features created in the pre-training step with this command:
+```python
+python bert_finetuning_squad_no_amp.py
+--bert_model=bert-base-uncased
+--output_dir=results
+--init_checkpoint=workspace/checkpoints/bert_base.pt
+--vocab_file=workspace/bert/vocab/uncased_L24_H-1024_A-16.vocab.txt
+--config_file=workspace/bert/configs/base.json
+--do_train
+--train_file=workspace/bert/data/v1.1/train-v2.0.json
+--version_2_with_negative
+--do_lower_case
+--log_interval=5
+--log_dir=results
+--model_type=bert_small
+--use_tensorboard=True
+--train_batch_size=24
+--fp16
+--world_size=2
+--gradient_accumulation_steps=1
+```
  
 The mixed precision and Distributed Data Parallel related code changes are the following:
 1. Wrap the BERT Model in DDP, if world_size (typically number of GPUs on your system) > 1:
@@ -106,10 +137,27 @@ The mixed precision and Distributed Data Parallel related code changes are the f
             for step, batch in enumerate(train_iter):
                 with torch.autocast(device_type='cuda', dtype=torch.float16):    
     ```
-    As mentioned in Pytorch's [autocast documentation](https://pytorch.org/docs/stable/amp.html#autocasting), the backward pass and stepping the GradScalar and Optimizer should be done outside autocast. If gradient accumulation is used, we should wait until backward has been called sufficient number of times before unscaling the gradients and stepping the GradScalar. 
+ As mentioned in Pytorch's [autocast documentation](https://pytorch.org/docs/stable/amp.html#autocasting), the backward pass and stepping the GradScalar and Optimizer should be done outside autocast. If gradient accumulation is used, we should wait until backward has been called sufficient number of times before unscaling the gradients and stepping the GradScalar. 
  
- The figure below shows the percent complete for an epoch vs time. DDP (orange graph) on 2 GPUs is almost twice as fast as training on 1 GPU 
+ The figure below shows the percent complete for an epoch vs time. DDP (orange graph) on 2 GPUs is almost twice as fast (takes 57% as much time) as training on 1 GPU 
  ![](images/performance_comparison.png)
  
- The plots below the loss progression, learning rate for training over 1 and 2 GPUs (using mixed precision, with batch size = 24)
+ The plots below the loss progression, learning rate for training over 1 and 2 GPUs (using mixed precision, with batch size = 24). As you can see, the loss progression graphs look similar and the fine-tuned model achieves similar F1 scores on the evaluation dataset. 
  ![](images/loss_progression_world_size_1)
+ 
+ ![](images/loss_progression_world_size_2)
+ 
+ ## Profiling 
+ Launching Nsights systems UI
+ ```shell script
+$ /usr/local/cuda-11.8/nsight-systems-2022.4.2/bin/nsys-ui
+```
+ 
+ ![](images/launching_nsights.png)
+ 
+ ![](images/nSights_output.png)
+ 
+ The profiler tells us that all-reducing gradients across the GPUs takes about 10% of the time. This overhead explains why the training time with 2 GPUs is a bit higher than half the training time with 1 GPU. 
+ 
+ ## Evaluation
+ 
