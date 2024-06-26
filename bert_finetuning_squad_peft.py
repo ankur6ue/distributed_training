@@ -210,10 +210,10 @@ def fsdp_main(local_rank, world_size, args):
         peft_config = LoraConfig(
             task_type=TaskType.QUESTION_ANS,
             inference_mode=False,
-            r=16,
+            r=8,
             lora_alpha=16,
             lora_dropout=0.1,
-            bias="all", # will train the bias matrices.
+            bias="lora_only", # will train the bias matrices.
             target_modules=["key", "query", "value"],
             modules_to_save=["qa_outputs"],
         )
@@ -314,6 +314,9 @@ def fsdp_main(local_rank, world_size, args):
 
                     batch = tuple(t.to(device) for t in batch)
                     input_ids, input_mask, segment_ids, start_positions, end_positions = batch
+                    # Doing the below results in errors
+                    # start_logits, end_logits = lora_model(input_ids, segment_ids, input_mask)
+                    # Doing this works:
                     start_logits, end_logits = model(input_ids, segment_ids, input_mask)
                     # If we are on multi-GPU, split add a dimension
                     if len(start_positions.size()) > 1:
