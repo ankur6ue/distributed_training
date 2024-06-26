@@ -4,8 +4,6 @@ This project modifies the BERT pre-training and finetuning [code](https://github
 * Enabling distributed data parallel training and removing all references to Nvidia apex.amp library and replacing them with native Pytorch DDP, mixed precision forward and backward pass and gradient scaling
 
 
-Generative vs not
-
 ## 1. Generating features for finetuning a pre-trained BERT model using the SQuAD dataset
 First step in fine-tuning the BERT model is to generate the features used during training. In the original code released by NVIDIA, feature generation is part of training code (see `read_squad_examples` and `convert_examples_to_features` in `run_squad.py`). I've broken this out into a separate file `prepare_data.py`. You can run this as follows:
 
